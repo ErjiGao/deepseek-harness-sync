@@ -1,0 +1,7 @@
+# Keep the authored line endings on every platform so a Windows checkout and a
+# Linux checkout produce identical bytes and no spurious diffs.
+* text=auto eol=lf
+
+# Windows shims and binaries, should any ever appear.
+*.cmd text eol=crlf
+*.bat text eol=crlf

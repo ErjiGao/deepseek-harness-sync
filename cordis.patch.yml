@@ -1,0 +1,22 @@
+# dsh bundle patch: inserts this plugin into a profile's layer stack.
+#
+# The plugin works with no configuration. Its defaults are profile=web,
+# device=<os hostname>, and storage under $DSH_HOME/harness-sync.
+#
+# To pin those, add a config block to the row below:
+#
+#   - insert:
+#       - id: harness-sync
+#         name: 'deepseek-harness-sync'
+#         config:
+#           profile: web
+#           device: my-laptop
+#
+# Configuration keys: profile, device, dataRoot.
+#
+# Note: the host-side plugin only exposes tools and the /harness-sync command.
+# The `harness-sync` CLI runs standalone and shares the same core, so it works
+# whether or not dsh is running.
+- insert:
+    - id: harness-sync
+      name: 'deepseek-harness-sync'

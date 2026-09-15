@@ -1,0 +1,53 @@
+{
+  "name": "deepseek-harness-sync",
+  "version": "0.1.0",
+  "description": "Sync your DeepSeek Harness configuration across machines through your own private GitHub repository — push, pull, sync, status, init, rollback.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "harness-sync": "bin/harness-sync.js"
+  },
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/core.test.mjs test/plugin.test.mjs test/api.test.mjs test/client.test.mjs test/e2e.test.mjs"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "config-sync",
+    "backup",
+    "github",
+    "private-repository"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings-general"
+      ]
+    }
+  }
+}

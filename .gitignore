@@ -1,0 +1,15 @@
+node_modules/
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Never commit machine state or credentials. These are the paths this plugin
+# creates under the harness home; none of them belong in a source repository.
+config.json
+backup/
+repo/
+exports/
+.credentials.yaml
+*.token
+.env
