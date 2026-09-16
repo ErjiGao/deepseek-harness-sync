@@ -314,6 +314,27 @@ describe('plugin contract', () => {
 		});
 	});
 
+	it('accepts a workspace path on the commands that read or write it', async () => {
+		const root = makeRoot(harnessFiles());
+		await withTempHome(root, async () => {
+			const { ctx, tools } = fakeContext();
+			apply(ctx, {});
+			for (const name of ['harness_sync_push', 'harness_sync_pull', 'harness_sync_status']) {
+				const tool = tools.find((candidate) => candidate.name === name);
+				const properties = tool.parameters?.properties ?? {};
+				assert.ok('workspace' in properties, `${name} must accept a workspace path`);
+				assert.match(properties.workspace.description, /session working directory/, `${name} must document the default`);
+			}
+			// And a wrong type is still refused rather than silently ignored.
+			const push = tools.find((tool) => tool.name === 'harness_sync_push');
+			await assert.rejects(() => push.execute({ workspace: 42 }), /"workspace" must be a string/);
+			// `rollback` restores a backup that may contain workspace files, but its
+			// argument is a backup name, not a workspace: it must NOT accept one.
+			const rollback = tools.find((tool) => tool.name === 'harness_sync_rollback');
+			assert.equal('workspace' in (rollback.parameters?.properties ?? {}), false);
+		});
+	});
+
 	it('answers an unknown slash subcommand without running anything', async () => {
 		const { ctx, commands } = fakeContext();
 		apply(ctx, {});
