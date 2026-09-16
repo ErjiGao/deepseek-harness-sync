@@ -1,6 +1,6 @@
 {
   "name": "deepseek-harness-sync",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Sync your DeepSeek Harness configuration across machines through your own private GitHub repository — push, pull, sync, status, init, rollback.",
   "type": "module",
   "license": "MIT",
