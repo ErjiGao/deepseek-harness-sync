@@ -795,6 +795,7 @@ export     write a restorable snapshot of this device to a file
 | `--url` / `--user` / `--repo` / `--branch` | non-interactive inputs for `init` |
 | `--force` | proceed even though the repository advanced (`push`) |
 | `--dry-run` | report only, change nothing |
+| `--no-install` | do not run `pnpm install` when a pull changes the plugin set |
 | `--list` / `--to` | list or choose a backup (`rollback`) |
 | `--no-color` | disable colour |
 | `-h, --help` / `-v, --version` | help / version |

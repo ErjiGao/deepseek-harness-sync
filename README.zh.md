@@ -759,6 +759,7 @@ export     把本机当前配置导出成一个快照文件
 | `--url` / `--user` / `--repo` / `--branch` | `init` 的非交互输入 |
 | `--force` | 即使远端已前进也继续（`push`） |
 | `--dry-run` | 只报告，不写入 |
+| `--no-install` | 当 pull 改变了插件集合时，不自动执行 `pnpm install` |
 | `--list` / `--to` | `rollback` 列出／选择备份 |
 | `--no-color` | 关闭颜色 |
 | `-h, --help` / `-v, --version` | 帮助／版本 |
@@ -788,10 +789,14 @@ harness-sync pull --dry-run
 # 5. 应用
 harness-sync pull
 
-# 6. 如果 profile 的 bundle 列表变了，装依赖并重启
-cd "$DSH_HOME/profiles/web" && pnpm install
+# 6. 重启
 dsh web
 ```
+
+> 第 5 步的 `pull` 会在**插件集合发生变化时自动执行 `pnpm install`**（并把它装在 `profiles/web` 里），
+> 所以通常不需要你手工装依赖。想自己控制就加 `--no-install`。
+> 这也是为什么第 6 步之前别手工重启：bundle 列表一旦指向没装上的包，DSH 启动会直接失败。
+> 万一自动安装失败，`pull` 会打印失败原因并让你手工补一次，**配置本身已经写入，不会被回滚**。
 
 > 记住：**插件仓库**和**配置仓库**是两个仓库。前者让它"能跑"，后者让配置"回来"。
 
