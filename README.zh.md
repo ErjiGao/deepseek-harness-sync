@@ -470,12 +470,17 @@ Backups in .../harness-sync/backup (newest first)
 
 ## 9. 同步什么 / 绝不同步什么
 
+同步的是**两个目录**，不是一个：`$DSH_HOME` 放 Harness 配置，**workspace** 是你实际干活的那个
+目录——它带着自己的会话配置、技能和克隆下来的仓库。两者都会同步。
+
 ### 同步（**白名单**，不是"遍历后排除"）
+
+**Harness home**：文件集合是有限且已知的，逐个点名。
 
 | 路径（相对 `$DSH_HOME`） | 内容 |
 |---|---|
 | `settings.yaml` | 用户设置主文档（主题、语言、默认模型、默认预设…） |
-| `profiles/<profile>/package.json` | `dsh.profile.bundles` + `patchReload` |
+| `profiles/<profile>/package.json` | `dsh.profile.bundles` + `patchReload`——**插件就是靠它同步的** |
 | `profiles/<profile>/cordis.patch.yml` | 你的补丁层 |
 | `profiles/<profile>/cordis.yml` | profile 根（启动器期望它存在） |
 | `profiles/<profile>/pnpm-workspace.yaml` | linker / `allowBuilds` 策略 |
@@ -486,17 +491,98 @@ Backups in .../harness-sync/backup (newest first)
 | `AGENTS.md` | 用户全局指令基线（**存在才同步**） |
 | `cordis.patch.yml`（home 根） | 全局补丁层，优先级高于 profile 层（**存在才同步**） |
 
+**Workspace**：里面的东西无法预先枚举，所以改用**模式白名单 + 前置黑名单**。用
+`--workspace <dir>` 或 `$DSH_WORKSPACE` 指定；不给就只同步 home。
+
+| workspace 相对模式 | 为什么 |
+|---|---|
+| `.dsh/**` | workspace 自己的 Harness 配置与已装技能——这里最重要的东西 |
+| `.agent-presets/**`、`skills/**` | workspace 级的技能与预设 |
+| `AGENTS.md`、`CLAUDE.md`、`GEMINI.md`、`.cursorrules` | agent 指令基线 |
+| `.editorconfig`、`.gitattributes`、`.gitignore` | 属于配置的仓库杂项 |
+| `README.md`、`NOTES.md`、`TODO.md` | 值得带走的纯文本笔记 |
+
+按 workspace 用 `.dsh/sync.json` 放宽（它本身就放在 workspace 里，因为移动的是 workspace）：
+
+```json
+{ "include": ["src", "notes/keep.md"], "exclude": ["src/vendor"] }
+```
+
+`include` **不能**越过黑名单：`{"include": ["src"]}` 依然绝不会收录 `src/.env`。
+`sync.json` 格式坏掉时会退回安全默认值，而不是放宽同步范围。
+
+### 仓库只记引用，不复制内容
+
+workspace 里的 git 工作树被记为 `{path, remote, branch, head}`，**不会**被递归进去。复制它等于重复
+`git clone` 已经做的事，会把构建产物和历史塞进配置仓库，还会破坏之后 `git pull` 更新的能力。
+`push` 会写出两个派生文件，让恢复时不必解析 JSON：
+
+- `config/workspace-repos.json`——机器可读的清单；
+- `workspace-repos.sh`——POSIX 脚本，逐个克隆，**已存在就跳过，且绝不删除任何东西**。
+  它是"生成"而不是"执行"：克隆以你的权限跑、要联网，这不是同步工具该背着你做的事。
+
+没有 `origin` 远程的仓库按路径记录，并明确标注为**无法复现**——内容不复制，脚本会写明，而不是假装能恢复。
+
 ### 绝不同步
 
 | 类别 | 例子 | 为什么 |
 |---|---|---|
-| **机密** | `.credentials.yaml`、`dsh-pocket/token`、`.env` | 就是机密 |
-| **机器相关** | `bin/dsh.cmd`、`profiles/node_modules/` | 硬编码本机路径／可重建 |
-| **运行时状态** | `sessions/`、`attachments/`、`storages/`、`tokenledger.sqlite*`、`llm-deepseek/` | 会话与遥测，且体积大（本机实测 `sessions` 19.7 MB、`attachments` 10.5 MB） |
-| **第三方私有数据** | `dsh-config-manager/`、`integrations/`、`.src/` | 不属于配置 |
+| **机密** | `.credentials.yaml`、`dsh-pocket/token`、`.env`、`*.pem`、`id_rsa`、`credentials.json`、`secrets/` 下任何东西 | 就是机密 |
+| **workspace 数据** | `water_density/`、`output/`、未列入 include 的 `*.csv`、超过 1 MiB 的文件 | 本机实测：一个研究数据目录占了 workspace 695 MB 中的 569 MB |
+| **机器相关** | `bin/dsh.cmd`、`profiles/node_modules/`、workspace **路径本身** | 硬编码本机路径／可重建 |
+| **运行时状态** | `sessions/`、`attachments/`、`storages/`、`tokenledger.sqlite*`、`llm-deepseek/` | 会话与遥测，且体积大 |
+| **构建产物** | `node_modules/`、`dist/`、`build/`、`target/`、`__pycache__/`、`.venv/` | 用包管理器就能恢复 |
 
 `$DSH_HOME/.env` **故意不同步**：DSH 只允许这个文件承载代理凭证。想同步代理设置请用 README 里的
 `git config --global http.proxy`（见 §11）。
+
+workspace 根路径是**机器属性**，不是配置：记录下来的 `/home/alice/work` 在另一台机器上毫无意义。
+它的解析顺序是 `--workspace` → `$DSH_WORKSPACE` → `init` 为本机记录的路径，**永远不从快照里读**。
+如果 pull 下来的快照带 workspace 文件、而本机没有配置 workspace，pull 会**直接拒绝且不写任何东西**，
+而不是应用半个快照或凭空造一个目录。
+
+### 9.1 换新机器的完整流程
+
+在**你要离开的那台**机器上（或抹盘之前）：
+
+```bash
+harness-sync init --url https://github.com/<you>/DSH-Sync-Data.git --branch main
+harness-sync push --workspace /你的/workspace/路径
+harness-sync status                       # 应显示 synchronized
+```
+
+在**新机器**上，按顺序：
+
+```bash
+# 1. 先装工具本身（它是插件，得先有个 profile）
+dsh plugin --profile web add github:<you>/deepseek-harness-sync
+
+# 2. 连到同一个私有仓库
+harness-sync init --url https://github.com/<you>/DSH-Sync-Data.git --branch main
+
+# 3. 应用配置——两个目录都应用
+harness-sync pull --workspace /本机/上的/路径
+
+# 4. 重建 profile 里列的插件
+cd ~/.dsh/profiles/web && pnpm install
+#    Windows：%USERPROFILE%\.dsh\profiles\web
+
+# 5. 重新克隆 workspace 里的仓库
+sh ~/.dsh/harness-sync/repo/workspace-repos.sh
+#    Windows：%USERPROFILE%\.dsh\harness-sync\repo\workspace-repos.sh
+
+# 6. 重启 DeepSeek Harness，让恢复的 bundle 列表生效
+```
+
+有两件事**故意不自动做**，这也正是 `pull` 会打印它做了什么的原因：
+
+- **第 5 步不在 `pull` 里发生。** 克隆脚本是写进配置仓库让你自己看的，不是替你跑的。一个在你 pull
+  的瞬间就默默克隆四个仓库的同步工具，是你无法审计的。脚本躺在 `init` 克隆下来的本地仓库里，即
+  `$DSH_HOME/harness-sync/repo/`。请在 workspace 根目录下运行它：脚本里的路径是 workspace 相对的，
+  所以同一份脚本在这台机器上不管 workspace 叫什么名字都能用。`config/workspace-repos.json`
+  里有同样的清单（机器可读），你也可以自己手动来。
+- **第 4 步是包管理器，不是同步。** `pnpm-lock.yaml` 同步过来了，所以版本是钉住的，但"装"是关于这台
+  机器的决定。
 
 ---
 

@@ -13,3 +13,6 @@ exports/
 .credentials.yaml
 *.token
 .env
+
+# Throwaway local debugging scripts.
+_dbg*

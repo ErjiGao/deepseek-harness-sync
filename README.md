@@ -2,13 +2,18 @@
 
 English | [中文](README.zh.md)
 
-Sync your DeepSeek Harness (DSH) configuration across machines through **your own private GitHub repository**.
+Sync a whole DeepSeek Harness (DSH) installation across machines through **your own private GitHub
+repository**.
 
 ```text
-device A config  →  harness-sync push  →  your private repository
-                                                ↓
-device B config  ←  harness-sync pull  ←  your private repository
+device A: home + workspace  →  harness-sync push  →  your private repository
+                                                            ↓
+device B: home + workspace  ←  harness-sync pull  ←  your private repository
 ```
+
+Two directories, not one. `$DSH_HOME` holds the harness configuration; the **workspace** is the
+directory you actually work in, which carries its own session configuration, skills, and cloned
+repositories. Both travel; see §9.
 
 ---
 
@@ -18,14 +23,22 @@ device B config  ←  harness-sync pull  ←  your private repository
 
 - Read a **whitelisted** set of files under `$DSH_HOME` (see §9) and pack them, **verbatim**, into a
   versioned snapshot.
+- Read a **pattern-whitelisted** set of files from the session workspace, and record the git
+  repositories inside it as **clone references** rather than copying their contents.
 - Push that snapshot to your private repository, or pull and apply it, using `git`.
-- Back up the current configuration before every overwrite, keeping the last 5, restorable with `rollback`.
+- Back up the current configuration — both directories — before every overwrite, keeping the last 5,
+  restorable with `rollback`.
 
 **Refuses to**
 
 - **Parse, interpret, or rewrite your configuration.** `settings.yaml` is stored byte-for-byte, so your
   comments, anchors and formatting survive.
 - Sync session logs, attachments, telemetry databases, or `node_modules`.
+- Sync research data, build output, or anything holding a credential. The workspace layer has a
+  **hard deny-list** that runs before its allowlist, so `.env`, `*.pem`, `id_rsa`, `credentials.json`
+  and a directory named `secrets/` are refused even inside an allowlisted tree.
+- **Copy a git repository's working tree into the configuration repository.** Repositories are recorded
+  by URL, branch and commit, and a `workspace-repos.sh` script is generated to clone them.
 - Touch credentials. No token ever reaches the repository, the plugin's config, or a log line.
 - Introduce a database, server, Docker, accounts, or a third-party sync service.
 
@@ -480,10 +493,12 @@ ever contains a credential.
 
 ### Synced — a **whitelist**, never "walk everything and exclude"
 
+**The harness home.** A finite, known set of files, named explicitly:
+
 | Path (relative to `$DSH_HOME`) | Contents |
 |---|---|
 | `settings.yaml` | the user-settings document (theme, locale, default model, default preset…) |
-| `profiles/<profile>/package.json` | `dsh.profile.bundles` + `patchReload` |
+| `profiles/<profile>/package.json` | `dsh.profile.bundles` + `patchReload` — **this is how plugins travel** |
 | `profiles/<profile>/cordis.patch.yml` | your patch layer |
 | `profiles/<profile>/cordis.yml` | the profile root the launcher expects |
 | `profiles/<profile>/pnpm-workspace.yaml` | linker / `allowBuilds` policy |
@@ -494,17 +509,111 @@ ever contains a credential.
 | `AGENTS.md` | the user-global instruction baseline (**only if present**) |
 | `cordis.patch.yml` (home root) | the home patch layer, which outranks the per-profile one (**only if present**) |
 
+**The workspace.** A directory whose contents cannot be enumerated in advance, so the rule is a
+pattern allowlist with a **deny-list in front of it**. Point at it with `--workspace <dir>` or
+`$DSH_WORKSPACE`; without one, only the home is synced.
+
+| Workspace-relative pattern | Why |
+|---|---|
+| `.dsh/**` | the workspace's own harness config and its installed skills — the most important thing here |
+| `.agent-presets/**`, `skills/**` | workspace-scoped skills and presets |
+| `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.cursorrules` | agent instruction baselines |
+| `.editorconfig`, `.gitattributes`, `.gitignore` | repository housekeeping that is configuration |
+| `README.md`, `NOTES.md`, `TODO.md` | the plain notes worth carrying |
+
+Widen it per workspace with `.dsh/sync.json`, which itself lives in the workspace because the
+workspace is what moves:
+
+```json
+{ "include": ["src", "notes/keep.md"], "exclude": ["src/vendor"] }
+```
+
+An `include` **cannot** override the deny-list: `{"include": ["src"]}` still never captures `src/.env`.
+A malformed `sync.json` falls back to the safe defaults rather than widening what is synced.
+
+### Recorded as references, not copied
+
+A git working tree inside the workspace is captured as `{path, remote, branch, head}` and **not**
+descended into. Copying it would duplicate what `git clone` does, pull build output and history into
+the configuration repository, and destroy the ability to `git pull` updates afterwards. `push` writes
+two derived files so a restore needs no JSON parsing:
+
+- `config/workspace-repos.json` — the machine-readable list;
+- `workspace-repos.sh` — a POSIX script that clones each repository, **skips one that already exists,
+  and never deletes anything**. It is generated, not executed: cloning runs with your privileges and
+  hits the network, which is not a thing a sync should do behind your back.
+
+A repository with no `origin` remote is recorded by path and reported as **not reproducible** — its
+contents are not copied, and the script says so rather than pretending.
+
 ### Never synced
 
 | Category | Examples | Why |
 |---|---|---|
-| **Secrets** | `.credentials.yaml`, `dsh-pocket/token`, `.env` | they are secrets |
-| **Machine-specific** | `bin/dsh.cmd`, `profiles/node_modules/` | hard-coded local paths / rebuildable |
-| **Runtime state** | `sessions/`, `attachments/`, `storages/`, `tokenledger.sqlite*`, `llm-deepseek/` | sessions and telemetry, and large (measured here: `sessions` 19.7 MB, `attachments` 10.5 MB) |
-| **Third-party private data** | `dsh-config-manager/`, `integrations/`, `.src/` | not configuration |
+| **Secrets** | `.credentials.yaml`, `dsh-pocket/token`, `.env`, `*.pem`, `id_rsa`, `credentials.json`, anything under `secrets/` | they are secrets |
+| **Workspace data** | `water_density/`, `output/`, unlisted `*.csv`, anything over 1 MiB | measured here: one research directory was 569 MB of the workspace's 695 MB |
+| **Machine-specific** | `bin/dsh.cmd`, `profiles/node_modules/`, the workspace *path itself* | hard-coded local paths / rebuildable |
+| **Runtime state** | `sessions/`, `attachments/`, `storages/`, `tokenledger.sqlite*`, `llm-deepseek/` | sessions and telemetry, and large |
+| **Build output** | `node_modules/`, `dist/`, `build/`, `target/`, `__pycache__/`, `.venv/` | restorable with a package manager |
 
 `$DSH_HOME/.env` is **deliberately** excluded: DSH allows proxy credentials in that file and nowhere else.
 To sync proxy settings, configure git instead (§11).
+
+The workspace root is a property of the machine, not of the configuration: a recorded
+`/home/alice/work` means nothing on another device. It is resolved from `--workspace`, then
+`$DSH_WORKSPACE`, then the path `init` recorded for this device — **never from the snapshot**. If a
+pull arrives carrying workspace files and this machine has no workspace configured, the pull **refuses
+and writes nothing**, rather than applying half a snapshot or inventing a directory.
+
+### 9.1 A new machine, end to end
+
+On the **machine you are leaving** (or before you wipe it):
+
+```bash
+harness-sync init --url https://github.com/<you>/DSH-Sync-Data.git --branch main
+harness-sync push --workspace /path/to/your/workspace
+harness-sync status                       # should say "synchronized"
+```
+
+On the **new machine**, in order:
+
+```bash
+# 1. Get the tool itself. It is a plugin, so a profile must exist first.
+dsh plugin --profile web add github:<you>/deepseek-harness-sync
+
+# 2. Connect this device to the same private repository.
+harness-sync init --url https://github.com/<you>/DSH-Sync-Data.git --branch main
+
+# 3. Apply the configuration — BOTH directories.
+harness-sync pull --workspace /path/on/this/machine
+
+# 4. Rebuild the plugins the profile lists.
+cd ~/.dsh/profiles/web && pnpm install
+#    Windows: %USERPROFILE%\.dsh\profiles\web
+
+# 5. Re-clone the workspace's repositories.
+cd /path/on/this/machine && sh workspace-repos.sh
+
+# 6. Restart DeepSeek Harness so the restored bundle list takes effect.
+```
+
+Two things are deliberately **not** automatic, and both are the reason `pull` prints what it did:
+
+- **Step 5 does not happen during `pull`.** The clone script is written into the configuration
+  repository rather than run for you. A sync that silently clones four repositories the moment you
+  pull is a sync you cannot audit. It is waiting in the local clone that `init` made, which is
+  `$DSH_HOME/harness-sync/repo` — so on the new machine:
+
+  ```bash
+  sh ~/.dsh/harness-sync/repo/workspace-repos.sh
+  # Windows: %USERPROFILE%\.dsh\harness-sync\repo\workspace-repos.sh
+  ```
+
+  Run it from the workspace root: its paths are workspace-relative so the same script works whatever
+  the workspace is called on this machine. `config/workspace-repos.json` holds the same list in
+  machine-readable form if you would rather do it by hand.
+- **Step 4 is a package manager, not a sync.** `pnpm-lock.yaml` travelled, so the versions are pinned,
+  but installing is a decision about this machine.
 
 ---
 
@@ -680,6 +789,7 @@ export     write a restorable snapshot of this device to a file
 |---|---|
 | `--root <dir>` | treat `<dir>` as the harness home instead of `$DSH_HOME` / `~/.dsh` |
 | `--data-root <dir>` | this plugin's data directory instead of `<harness home>/harness-sync` |
+| `--workspace <dir>` | the session workspace to include (default `$DSH_WORKSPACE`, then the path `init` recorded). Without one, only the harness home is synced |
 | `--profile <name>` | profile to sync (default `web`) |
 | `--device <name>` | device name recorded in snapshots (default: hostname) |
 | `--url` / `--user` / `--repo` / `--branch` | non-interactive inputs for `init` |

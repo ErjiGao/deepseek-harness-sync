@@ -28,7 +28,12 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/core.test.mjs test/plugin.test.mjs test/api.test.mjs test/client.test.mjs test/e2e.test.mjs"
+    "test": "node --test test/core.test.mjs test/workspace.test.mjs test/layers.test.mjs test/guard-workspace.test.mjs test/plugin.test.mjs test/api.test.mjs test/client.test.mjs test/workspace-e2e.test.mjs test/e2e.test.mjs",
+    "test:core": "node --test test/core.test.mjs",
+    "test:workspace": "node --test test/workspace.test.mjs",
+    "test:layers": "node --test test/layers.test.mjs",
+    "test:plugin": "node --test test/guard-workspace.test.mjs test/plugin.test.mjs",
+    "test:e2e": "node --test test/workspace-e2e.test.mjs test/e2e.test.mjs"
   },
   "keywords": [
     "deepseek-harness",
